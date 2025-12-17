@@ -9,10 +9,10 @@
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
       "position": [
-        5184,
-        4992
+        896,
+        0
       ],
-      "id": "7ec119a8-0a23-42ca-aeca-37ee74a13c00",
+      "id": "730d4dde-091e-4dd8-8f5e-b80e87c51f7a",
       "name": "Split Out Adsets"
     },
     {
@@ -52,10 +52,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        5408,
-        4992
+        1120,
+        0
       ],
-      "id": "f2aecad9-d4d7-4d0d-a3a7-92a0c16d893f",
+      "id": "9dbcad2b-6196-4968-9327-37d2bbb4d388",
       "name": "Lọc Campaigns Active"
     },
     {
@@ -63,27 +63,27 @@
         "language": "python",
         "pythonCode": "# Nhóm lại các adsets đã lọc thành array để xử lý\nadsets = []\n\n# Thu thập tất cả adsets từ các items (mỗi item là một adset sau IF node)\nfor item in items:\n    if item and item.get('json'):\n        adsets.append(item['json'])\n\n# Trả về với cấu trúc giống như input ban đầu từ HTTP Request\nreturn [{\n    'json': {\n        'data': adsets\n    }\n}]"
       },
-      "id": "3e0e6dc1-fc72-4060-be69-c2384d329716",
+      "id": "3e8b2e98-3afb-44ca-a106-6d8cd73a2ebd",
       "name": "Nhóm lại Adsets",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5632,
-        4992
+        1344,
+        0
       ]
     },
     {
       "parameters": {
         "language": "python",
-        "pythonCode": "from datetime import datetime\nfrom collections import defaultdict\n\n# CẤU HÌNH\nTY_GIA = _('Thông Số Đầu Vào').first().json.Ty_Gia\nNGUONG_CPA = _('Quy Đổi Theo Tỷ Suất').first().json.Nguong_CPA\nCOMMENT_KEYS = ['comment']\nMESSAGING_KEYS = ['onsite_conversion.messaging_first_reply']\n\n# Hàm tính CPA\ndef calc_cpa(spend, actions):\n    total = sum(int(a.get('value', 0)) for a in (actions or []) if a.get('action_type') in COMMENT_KEYS + MESSAGING_KEYS)\n    return (spend * TY_GIA) / total if total > 0 else (999999 if spend > 0 else 0)\n\n# Hàm lấy insights\ndef get_insights(obj):\n    return obj.get('insights', {}).get('data', [None])[0] if obj.get('insights', {}).get('data') else None\n\n# Hàm lấy post_id\ndef get_post_id(adset):\n    ads = adset.get('ads', {}).get('data', [])\n    if not ads:\n        return 'No Post ID Found'\n    creative = ads[0].get('creative', {})\n    return creative.get('effective_object_story_id') or creative.get('object_story_id') or ads[0].get('id', 'No Post ID Found')\n\n# Lấy dữ liệu adsets (đã được lọc campaigns ACTIVE)\nadsets = (items[0].json if items else {}).get('data', [])\noutput_to_sheet, output_to_scale, output_adset_turn_off, output_camp_turn_off, output_to_db = [], [], [], [], []\n\n# Nhóm adsets theo campaign\ncampaign_adsets = defaultdict(list)\nfor adset in adsets:\n    campaign = adset.get('campaign', {})\n    campaign_id = campaign.get('id')\n    if campaign_id:\n        campaign_adsets[campaign_id].append({\n            'adset': adset,\n            'campaign': campaign\n        })\n\n# Xử lý từng campaign\nfor campaign_id, adset_list in campaign_adsets.items():\n    campaign = adset_list[0]['campaign']\n    campaign_name = campaign.get('name', 'Unknown')\n    \n    good_adsets = []\n    \n    # Xử lý từng adset trong campaign\n    for item in adset_list:\n        adset = item['adset']\n        insights = get_insights(adset)\n        if not insights:\n            continue\n            \n        spend = float(insights.get('spend', 0) or 0)\n        cpa = calc_cpa(spend, insights.get('actions'))\n        \n        # Kiểm tra CPA: nếu không đạt ngưỡng (CPA > NGUONG_CPA) thì tắt\n        if cpa > NGUONG_CPA:\n            data = {\n                'adset_id': adset.get('id'), 'adset_name': adset.get('name'), 'cpa': cpa,\n                'reason': f'AdSet không đạt ngưỡng CPA (CPA = {cpa} > {NGUONG_CPA})', 'timestamp': datetime.now().isoformat()\n            }\n            output_adset_turn_off.append({'json': data})\n            output_to_db.append({'json': {**data, 'status_recorded': 'PAUSED_BY_AI', 'type': 'adset'}})\n        \n        # CPA tốt -> Thêm vào danh sách\n        if cpa <= NGUONG_CPA:\n            adset['calculated_cpa'] = cpa\n            good_adsets.append(adset)\n    \n    # Xử lý nhóm tốt\n    count_good = len(good_adsets)\n    \n    # CASE A: Campaign có >= n nhóm tốt -> Ghi Sheet\n    if count_good >= _('Thông Số Đầu Vào').first().json.Bao_Nhieu_Nhom_Tot:\n        for g in good_adsets:\n            output_to_sheet.append({'json': {\n                'campaign_id': campaign_id, 'campaign_name': campaign_name,\n                'adset_id': g.get('id'), 'adset_name': g.get('name'),\n                'cpa': g.get('calculated_cpa'), 'post_id': get_post_id(g),\n                'note': f'Camp ổn định ({count_good} nhóm tốt, CPA <= {NGUONG_CPA})'\n            }})\n  \nreturn {\n    'report_sheet': output_to_sheet,\n    'action_turn_off_adset': output_adset_turn_off,\n    'action_turn_off_campaign': output_camp_turn_off,\n    'action_scale': output_to_scale,\n}"
+        "pythonCode": "from datetime import datetime\nfrom collections import defaultdict\n\n# CẤU HÌNH\nTY_GIA = _('Thông Số Đầu Vào').first().json.Ty_Gia\nNGUONG_CPA = _('Thông Số Đầu Vào').first().json.Nguong_CPA\nCOMMENT_KEYS = ['comment']\nMESSAGING_KEYS = ['onsite_conversion.messaging_first_reply']\n\n# Hàm tính CPA\ndef calc_cpa(spend, actions):\n    total = sum(int(a.get('value', 0)) for a in (actions or []) if a.get('action_type') in COMMENT_KEYS + MESSAGING_KEYS)\n    return (spend * TY_GIA) / total if total > 0 else (999999 if spend > 0 else 0)\n\n# Hàm lấy insights\ndef get_insights(obj):\n    return obj.get('insights', {}).get('data', [None])[0] if obj.get('insights', {}).get('data') else None\n\n# Hàm lấy post_id\ndef get_post_id(adset):\n    ads = adset.get('ads', {}).get('data', [])\n    if not ads:\n        return 'No Post ID Found'\n    creative = ads[0].get('creative', {})\n    return creative.get('effective_object_story_id') or creative.get('object_story_id') or ads[0].get('id', 'No Post ID Found')\n\n# Lấy dữ liệu adsets (đã được lọc campaigns ACTIVE)\nadsets = (items[0].json if items else {}).get('data', [])\noutput_to_sheet, output_to_scale, output_adset_turn_off, output_camp_turn_off, output_to_db = [], [], [], [], []\n\n# Nhóm adsets theo campaign\ncampaign_adsets = defaultdict(list)\nfor adset in adsets:\n    campaign = adset.get('campaign', {})\n    campaign_id = campaign.get('id')\n    if campaign_id:\n        campaign_adsets[campaign_id].append({\n            'adset': adset,\n            'campaign': campaign\n        })\n\n# Xử lý từng campaign\nfor campaign_id, adset_list in campaign_adsets.items():\n    campaign = adset_list[0]['campaign']\n    campaign_name = campaign.get('name', 'Unknown')\n    \n    good_adsets = []\n    \n    # Xử lý từng adset trong campaign\n    for item in adset_list:\n        adset = item['adset']\n        insights = get_insights(adset)\n        if not insights:\n            continue\n            \n        spend = float(insights.get('spend', 0) or 0)\n        cpa = calc_cpa(spend, insights.get('actions'))\n        \n        # Kiểm tra CPA: nếu không đạt ngưỡng (CPA > NGUONG_CPA) thì tắt\n        if cpa > NGUONG_CPA:\n            data = {\n                'adset_id': adset.get('id'), 'adset_name': adset.get('name'), 'cpa': cpa,\n                'reason': f'AdSet không đạt ngưỡng CPA (CPA = {cpa} > {NGUONG_CPA})', 'timestamp': datetime.now().isoformat()\n            }\n            output_adset_turn_off.append({'json': data})\n            output_to_db.append({'json': {**data, 'status_recorded': 'PAUSED_BY_AI', 'type': 'adset'}})\n        \n        # CPA tốt -> Thêm vào danh sách\n        if cpa <= NGUONG_CPA:\n            adset['calculated_cpa'] = cpa\n            good_adsets.append(adset)\n    \n    # Xử lý nhóm tốt\n    count_good = len(good_adsets)\n    \n    # CASE A: Campaign có >= n nhóm tốt -> Ghi Sheet\n    if count_good >= _('Thông Số Đầu Vào').first().json.Bao_Nhieu_Nhom_Tot:\n        for g in good_adsets:\n            output_to_sheet.append({'json': {\n                'campaign_id': campaign_id, 'campaign_name': campaign_name,\n                'adset_id': g.get('id'), 'adset_name': g.get('name'),\n                'cpa': g.get('calculated_cpa'), 'post_id': get_post_id(g),\n                'note': f'Camp ổn định ({count_good} nhóm tốt, CPA <= {NGUONG_CPA})'\n            }})\n  \nreturn {\n    'report_sheet': output_to_sheet,\n    'action_turn_off_adset': output_adset_turn_off,\n    'action_turn_off_campaign': output_camp_turn_off,\n    'action_scale': output_to_scale,\n}"
       },
-      "id": "3014fb81-bec0-4edd-922b-b9b85c352268",
+      "id": "dcdc6aba-8d72-4b01-b9bf-b15ada81d8cf",
       "name": "Phân Loại & Xử Lý Logic",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5856,
-        4992
+        1568,
+        0
       ],
       "output": [
         "report_sheet",
@@ -101,10 +101,10 @@
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
       "position": [
-        6304,
-        4992
+        2016,
+        0
       ],
-      "id": "38b31d6f-90e9-4d2a-b828-d0b3e934ddf9",
+      "id": "542283a2-e73f-4941-9932-21d62965d9e2",
       "name": "Split Out1"
     },
     {
@@ -112,7 +112,8 @@
         "rule": {
           "interval": [
             {
-              "field": "hours"
+              "field": "minutes",
+              "minutesInterval": 30
             }
           ]
         }
@@ -120,10 +121,10 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.3,
       "position": [
-        4288,
-        4992
+        0,
+        0
       ],
-      "id": "d1e89f38-3176-4757-b40a-5f78c8e2eaec",
+      "id": "1404245a-ff1d-4b8b-bd94-b7f5f1bc181c",
       "name": "Schedule Trigger"
     },
     {
@@ -133,7 +134,7 @@
             {
               "id": "3acae58a-6d3c-4db5-a1aa-edf9cd88181b",
               "name": "access_token",
-              "value": "EAATostwKkxMBQKqLOPRtu9S0G1mw2e0qk6buF1ABoBN55kZCPIakYokDJI2eAWJvFzzWXYZCTZBbAAosCyp2fOTbmQHOM62Mt1TcqTiHzmk96s6x9KZBEqwFvnzZC4J2roZC3ziZAoOZAMbV4LBhnC1Ol3miZBYlfl75a47XwNgV0v6NBXnCiUQEK7hXWDPD06ypWvaCZBNQGjzSFUY87sTr9K",
+              "value": "EAATostwKkxMBQCfStbhkx6Jgdi0DrXO8FZCB32JHhAizaN0O7pZAEZCay2BoMZAYCUZBiqJeoCAj5LScxx2cL1duf8ZCQRT5HIyBnPTCDGpFPiaDABMABgCuaF2eG71rCMSZCskRpF1N60ZCDOWmZCBZAUbeTbeAVlJM1tLj75M4dAlMUia3PmbrrkeeH52R9sXmMMH0VJjBEq2fUz4LIinIYA",
               "type": "string"
             },
             {
@@ -145,7 +146,7 @@
             {
               "id": "e06e933a-425d-4633-ac53-f70f7a04aec1",
               "name": "Cam_Chi_Tieu_Nguong_Tren",
-              "value": 3500000,
+              "value": 2000000,
               "type": "number"
             },
             {
@@ -179,10 +180,10 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        4512,
-        4992
+        224,
+        0
       ],
-      "id": "64370ec8-ffd9-4908-b6d5-11c749fe2606",
+      "id": "b9f551e3-2fd9-4b63-bcdd-adf713a85bd3",
       "name": "Thông Số Đầu Vào"
     },
     {
@@ -214,10 +215,10 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        4736,
-        4992
+        448,
+        0
       ],
-      "id": "965b631e-3482-465f-9914-11f05be22c5d",
+      "id": "1f610a17-784d-4c59-893f-74cdcc7295ea",
       "name": "Quy Đổi Theo Tỷ Suất"
     },
     {
@@ -237,10 +238,10 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        6080,
-        4992
+        1792,
+        0
       ],
-      "id": "4e482009-21da-4993-8be5-6e7842a0e6ff",
+      "id": "053da8c5-b741-4dae-b98c-0fd2f5ea4c70",
       "name": "Nhóm cần tắt"
     },
     {
@@ -262,13 +263,13 @@
         },
         "options": {}
       },
-      "id": "523981d8-2d70-40ff-bec9-379a9e11ea20",
+      "id": "19e97320-3ad7-45fc-94b4-2e450a78038a",
       "name": "Tắt nhom",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        6528,
-        4992
+        2240,
+        0
       ]
     },
     {
@@ -297,13 +298,13 @@
         },
         "options": {}
       },
-      "id": "7c16a104-9470-445f-aa05-fd8ad1a57f13",
+      "id": "d95d219f-a6b5-44fc-9a3b-f24035ccb926",
       "name": "Lấy dữ liệu Nhóm",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        4960,
-        4992
+        672,
+        0
       ],
       "notesInFlow": true,
       "notes": "Thay YOUR_TOKEN và ID tài khoản QC"
@@ -426,10 +427,10 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "d7fb4b29-b949-402a-8bef-8da287ff9338",
+  "versionId": "ad8d91c4-44cc-4784-945b-8038790f1029",
   "meta": {
     "instanceId": "8ae9064574590f4bef62fe6c8cafaae52a5a90dd40cb184103af1049753a2d5d"
   },
-  "id": "jZj9OaLbJBPRvFK0",
+  "id": "JicvG7OCWtNQRq1c",
   "tags": []
 }
