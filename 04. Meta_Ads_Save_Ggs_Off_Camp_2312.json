@@ -1,5 +1,5 @@
 {
-  "name": "04. Meta_Ads_Save_Ggs_Off_Camp_V02",
+  "name": "04.Meta_Ads_Save_Ggs_Off_Camp_2312",
   "nodes": [
     {
       "parameters": {
@@ -28,7 +28,7 @@
             {
               "id": "3acae58a-6d3c-4db5-a1aa-edf9cd88181b",
               "name": "access_token",
-              "value": "EAATostwKkxMBQCfStbhkx6Jgdi0DrXO8FZCB32JHhAizaN0O7pZAEZCay2BoMZAYCUZBiqJeoCAj5LScxx2cL1duf8ZCQRT5HIyBnPTCDGpFPiaDABMABgCuaF2eG71rCMSZCskRpF1N60ZCDOWmZCBZAUbeTbeAVlJM1tLj75M4dAlMUia3PmbrrkeeH52R9sXmMMH0VJjBEq2fUz4LIinIYA",
+              "value": "",
               "type": "string"
             },
             {
@@ -409,7 +409,7 @@
       "typeVersion": 4.1,
       "position": [
         448,
-        72
+        80
       ]
     },
     {
@@ -602,7 +602,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "bb5ef67d-f8af-40d5-8264-bd4449270045",
+  "versionId": "68625aa9-0451-4e32-98d2-4150da6504e5",
   "meta": {
     "instanceId": "8ae9064574590f4bef62fe6c8cafaae52a5a90dd40cb184103af1049753a2d5d"
   },
